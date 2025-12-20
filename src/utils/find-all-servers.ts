@@ -13,6 +13,6 @@ function explore(ns: NS, target: string, archive: string[]) {
 
 export async function main(ns: NS) {
     let data = explore(ns, "home", [])
-    let toSave = data.join("/n")
+    let toSave = data.join("\n")
     ns.write("/etc/servers.txt", toSave, "w")
 }
