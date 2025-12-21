@@ -1,9 +1,14 @@
 import { NS } from "@ns"
 import { PLANNER_ACTION } from "./planner"
+import { WorkerReport } from "./worker"
+import { customPrint } from "@/lib/func"
 
 export enum JOB_STATUS {
-    QUEUED,
-    RUNNING
+    QUEUED = 0,
+    LAUNCHING = 1,
+    WAITING = 2,
+    RUNNING = 3,
+    FINISHED = 4
 }
 
 export class Dispatcher {
@@ -22,9 +27,11 @@ export class Dispatcher {
     }
 
     public dispatch() {
-        this.queue
-            .filter((job) => job.status == JOB_STATUS.QUEUED)
-            .forEach((job) => job.run(this.ns, this.getFreePort()))
+        for (let job of this.queue) {
+            if (job.status == JOB_STATUS.QUEUED) {
+                job.run(this.ns, this.getFreePort())
+            }
+        }
     }
 
     public getAssignedPorts() {
@@ -49,6 +56,14 @@ export class Dispatcher {
         this.queue.forEach((job) => this.ns.kill(job.pid))
     }
 
+    public killAllNotRunning() {
+        for (let job of this.queue) {
+            if (job.status == JOB_STATUS.WAITING || job.status == JOB_STATUS.LAUNCHING) {
+                this.ns.kill(job.pid)
+            }
+        }
+    }
+
     public killTargetJobs(targetName: string) {
         this.queue
             .filter((job) => job.target = targetName)
@@ -64,8 +79,35 @@ export class Dispatcher {
         }
     }
 
+    public clearQueue() {
+        this.queue = []
+    }
+
     public clearAllPorts() {
         this.portRange.forEach((port) => this.ns.clearPort(port))
+    }
+
+    public updateJobStatus(report: WorkerReport) {
+        for (let j of this.queue) {
+            if (j.pid == report.pid) {
+                j.status = report.status
+                break
+            }
+        }
+    }
+
+    public monitor() {
+        for (let port of this.getAssignedPorts()) {
+            let data = this.ns.readPort(port)
+            if (data != "NULL PORT DATA") {
+                let report = (data as WorkerReport)
+                this.updateJobStatus(report)
+                if (report.status == JOB_STATUS.FINISHED) {
+                    this.clearJob(report.pid)
+                    this.ns.clearPort(port)
+                } 
+            }
+        }
     }
 }
 
@@ -112,6 +154,6 @@ export class Job {
         )
 
         this.pid = pid
-        this.status = JOB_STATUS.RUNNING
+        this.status = JOB_STATUS.LAUNCHING
     }
 }

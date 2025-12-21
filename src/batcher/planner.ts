@@ -6,7 +6,7 @@ const H_COST = 1.70
 const W_COST = 1.75
 const G_COST = 1.75
 
-const DELAY = 100;
+const DELAY = 50;
 const FULL_DELAY = DELAY * 4
 
 export enum PLANNER_ACTION {

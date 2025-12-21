@@ -1,17 +1,21 @@
 import { RamMap } from "@/lib/rammap";
 import { NS } from "@ns";
 import { getHGWJobs, getWGJobs, getWJobs } from "./planner";
-import { Dispatcher, Job } from "./dispatcher";
+import { Dispatcher, JOB_STATUS } from "./dispatcher";
+import { WorkerReport } from "./worker";
+import { customPrint } from "@/lib/func";
+
 export async function main(ns: NS) {
     ns.disableLog("ALL")
 
-    let serverList = ["home"]
+    let serverList = ns.getPurchasedServers()
+    serverList.push("home")
 
     let ramMap = new RamMap(ns, serverList);
     const DISPATCHER = new Dispatcher(ns)
     DISPATCHER.clearAllPorts()
 
-    let target = "joesguns"
+    let target = "max-hardware"
 
     let playerLevel = ns.getHackingLevel()
 
@@ -20,40 +24,31 @@ export async function main(ns: NS) {
         ramMap = new RamMap(ns, serverList)
 
         if (newLevel > playerLevel) {
-            ns.print("Level up detected : Killing all jobs and replanning.")
+            customPrint(ns, "Level up detected. Killing all waiting jobs")
             playerLevel = newLevel
-            DISPATCHER.killAll()
+            DISPATCHER.killAllNotRunning()
         }
-
-        let isWorkedOn = DISPATCHER.isServerWorkedOn(target)
 
         let secDelta = ns.getServerSecurityLevel(target) - ns.getServerMinSecurityLevel(target)
 
-        if (secDelta > 0 && !isWorkedOn) {
-            ns.print("Planning Weaken prep")
+        if (secDelta > 0 && !DISPATCHER.isServerWorkedOn(target)) {
+            customPrint(ns, `Weakening ${target}`)
             DISPATCHER.add(getWJobs(ns, target, ramMap))
         }
         
-        if (ns.getServerMaxMoney(target) != ns.getServerMoneyAvailable(target) && !isWorkedOn) {
-            ns.print("Planning Grow prep")
+        if (ns.getServerMaxMoney(target) != ns.getServerMoneyAvailable(target) && !DISPATCHER.isServerWorkedOn(target)) {
+            customPrint(ns, `Growing ${target}`)
             DISPATCHER.add(getWGJobs(ns, target, ramMap))
         }
 
-        if (!isWorkedOn) {
-            ns.print("Planning Hack")
+        if (!DISPATCHER.isServerWorkedOn(target)) {
+            customPrint(ns, `Hacking ${target}`)
             DISPATCHER.add(getHGWJobs(ns, target, ramMap))
         }
 
         DISPATCHER.dispatch()
+        DISPATCHER.monitor()
 
-        for (let port of DISPATCHER.getAssignedPorts()) {
-            let data = ns.readPort(port)
-            if (data != "NULL PORT DATA") {
-                ns.tprint("Clearing PID " + data)
-                DISPATCHER.clearJob(data)
-            }
-        }
-
-        await ns.sleep(3000)
+        await ns.sleep(100)
     }
 }

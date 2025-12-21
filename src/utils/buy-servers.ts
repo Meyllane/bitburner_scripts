@@ -29,7 +29,7 @@ export async function main(ns: NS) {
             ns.tprint(`Bought ${serverName} with ${ns.formatRam(options[0].ram)} RAM`)
             money -= options[0].price
 
-            ns.scp("batcher/worker.js", serverName, "home")
+            ns.run("utils/scp.js")
 
         } else {
             const SMALLEST_SERVER = ns.getPurchasedServers()
