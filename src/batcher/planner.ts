@@ -9,6 +9,12 @@ const G_COST = 1.75
 const DELAY = 100;
 const FULL_DELAY = DELAY * 4
 
+export enum PLANNER_ACTION {
+    HACK = 0,
+    GROW = 1,
+    WEAKEN = 2
+}
+
 class HGWPlan {
     public hack: number
     public weakenH: number
@@ -57,9 +63,10 @@ export function getWJobs(ns: NS, targetServerName: string, ramMap: RamMap): Job[
         const NB_W = Math.min(MAX_W_THREADS, neededW)
 
         queue.push(new Job(
-            `prep-weaken-${targetServerName}`,
+            `prepW-weaken-${targetServerName}`,
             server.serverName,
-            "weaken",
+            PLANNER_ACTION.WEAKEN,
+            "batcher/worker.js",
             targetServerName,
             NB_W,
             0,
@@ -98,9 +105,10 @@ export function getWGJobs(ns: NS, targetServerName: string, ramMap: RamMap): Job
         const G_TIME = ns.getWeakenTime(targetServerName) - ns.getGrowTime(targetServerName) - DELAY + counter*(DELAY*2)
 
         queue.push(new Job(
-            `prep-grow-${targetServerName}-${counter}`,
+            `prepG-grow-${targetServerName}-${counter}`,
             server.serverName,
-            "grow",
+            PLANNER_ACTION.GROW,
+            "batcher/worker.js",
             targetServerName,
             NB_G,
             G_TIME,
@@ -108,9 +116,10 @@ export function getWGJobs(ns: NS, targetServerName: string, ramMap: RamMap): Job
         ))
 
         queue.push(new Job(
-            `prep-grow-${targetServerName}-${counter}`,
+            `prepG-weaken-${targetServerName}-${counter}`,
             server.serverName,
-            "weaken",
+            PLANNER_ACTION.WEAKEN,
+            "batcher/worker.js",
             targetServerName,
             NB_W,
             W_TIME,
@@ -148,7 +157,8 @@ export function getHGWJobs(ns: NS, targetServerName: string, ramMap: RamMap) {
             queue.push(new Job(
                 `hack-hack-${targetServerName}-${i}`,
                 server.serverName,
-                "hack",
+                PLANNER_ACTION.HACK,
+                "batcher/worker.js",
                 targetServerName,
                 batch.plan.hack,
                 WEAKEN_TIME - HACK_TIME - DELAY + FULL_DELAY * i,
@@ -158,7 +168,8 @@ export function getHGWJobs(ns: NS, targetServerName: string, ramMap: RamMap) {
             queue.push(new Job(
                 `hack-weakenH-${targetServerName}-${i}`,
                 server.serverName,
-                "weaken",
+                PLANNER_ACTION.WEAKEN,
+                "batcher/worker.js",
                 targetServerName,
                 batch.plan.weakenH,
                 FULL_DELAY * i,
@@ -168,7 +179,8 @@ export function getHGWJobs(ns: NS, targetServerName: string, ramMap: RamMap) {
             queue.push(new Job(
                 `hack-grow-${targetServerName}-${i}`,
                 server.serverName,
-                "grow",
+                PLANNER_ACTION.GROW,
+                "batcher/worker.js",
                 targetServerName,
                 batch.plan.grow,
                 WEAKEN_TIME - GROW_TIME + DELAY + FULL_DELAY * i,
@@ -178,7 +190,8 @@ export function getHGWJobs(ns: NS, targetServerName: string, ramMap: RamMap) {
             queue.push(new Job(
                 `hack-weakenG-${targetServerName}-${i}`,
                 server.serverName,
-                "weaken",
+                PLANNER_ACTION.WEAKEN,
+                "batcher/worker.js",
                 targetServerName,
                 batch.plan.weakenG,
                 2*DELAY + FULL_DELAY * i,
