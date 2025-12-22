@@ -1,6 +1,7 @@
-import { RamMap } from "@/lib/rammap";
+import { RamMap, RamUnit } from "@/lib/rammap";
 import { NS, Server } from "@ns";
 import { Job } from "./dispatcher";
+import { getDepOptimizationConfig } from "vite";
 
 const H_COST = 1.70
 const W_COST = 1.75
@@ -16,6 +17,8 @@ export enum PLANNER_ACTION {
 }
 
 class AttackPlan {
+    public targetHostname: string
+    public isHomePlan: boolean
     public hack: number
     public weakenH: number
     public grow: number
@@ -23,9 +26,12 @@ class AttackPlan {
     public stealPerc: number
     public ramCost: number
     public moneyStolen: number
-    public moneyPerRam: number
+    public performance: number
     
-    public constructor(hack: number, weakenH: number, grow: number, weakenG: number, stealPerc: number, ramCost: number, moneyStolen: number, moneyPerRam: number) {
+    public constructor(targetHostname: string, isHomePlan: boolean, hack: number, weakenH: number, grow: number, 
+        weakenG: number, stealPerc: number, ramCost: number, moneyStolen: number, performance: number) {
+        this.targetHostname = targetHostname
+        this.isHomePlan = isHomePlan
         this.hack = hack
         this.weakenH = weakenH
         this.grow = grow
@@ -33,7 +39,7 @@ class AttackPlan {
         this.stealPerc = stealPerc
         this.ramCost = ramCost
         this.moneyStolen = moneyStolen
-        this.moneyPerRam = moneyPerRam
+        this.performance = performance
     }
 }
 
@@ -217,36 +223,52 @@ export function getHGWJobs(ns: NS, targetServerName: string, ramMap: RamMap) {
     return queue
 }
 
-export function findOptimalHGW(ns: NS, targetServerName: string, ramMap: RamMap) {
+export function getBestAttackPlans(ns: NS, targetServers: Server[], ramMap: RamMap, hasFormulas: boolean, min_perc = 0.01, max_perc = 0.95, growSafetyFactor = 1.10) {
+    let results: AttackPlan[] = []
+    const IS_HOME_PRESENT = ramMap.isHomePresent()
+    const IS_SOME_SERVER_PRESENT = ramMap.isSomeServerPresent()
+    for (let target of targetServers) {
+        let options = getAttackPlans(ns, target, ramMap, hasFormulas, IS_HOME_PRESENT, IS_SOME_SERVER_PRESENT, min_perc, max_perc, growSafetyFactor)
+        
+        if (IS_HOME_PRESENT) {
+            let homeSorted = options
+                .filter((plan) => plan.isHomePlan)
+                .sort((a, b) => b.performance - a.performance)
+                .find((plan) => plan.ramCost <= ramMap.getRam("home"))
+            
+            if (homeSorted != undefined) results.push(homeSorted)
+        }
+
+        if (IS_SOME_SERVER_PRESENT) {
+            let biggestServer = (ramMap.getBiggestServer(true) as RamUnit)
+            let someSorted = options
+                .filter((plan) => !plan.isHomePlan)
+                .sort((a, b) => b.performance - a.performance)
+                .find((plan) => plan.ramCost <= biggestServer.availableRam)
+            
+            if (someSorted != undefined) results.push(someSorted)
+        }
+    }
+
+    return results.sort((a, b) => b.performance - a.performance)
+}
+
+export function getAttackPlans(ns: NS, targetServer: Server, ramMap: RamMap, hasFormulas: boolean, isHomePresent: boolean, isSomeServerPresent: boolean, 
+    min_perc = 0.01, max_perc = 0.95, growSafetyFactor = 1.10) {
+    let results: AttackPlan[] = []
+
     const HOME_CPU_CORES = ns.getServer("home").cpuCores
+    for (let i = min_perc; i <= max_perc; i += 0.01) {
+        if (isHomePresent) {
+            results.push(getAttackPlan(ns, HOME_CPU_CORES, targetServer, i, hasFormulas, growSafetyFactor))
+        }
 
-    const MIN_PERC = 0.01
-    const MAX_PERC = 0.95
-    let stealPerc = MIN_PERC
-
-    let home_results = []
-    let other_results = []
-
-    while (true) {
-        if (stealPerc > MAX_PERC) break
-
-        home_results.push(planHGWJob(ns, HOME_CPU_CORES, targetServerName, stealPerc))
-        other_results.push(planHGWJob(ns, 1, targetServerName, stealPerc))
-        stealPerc += 0.01
+        if (isSomeServerPresent) {
+            results.push(getAttackPlan(ns, 1, targetServer, i, hasFormulas, growSafetyFactor))
+        }
     }
 
-    let opti: {serverName: string, plan: HGWPlan}[] = []
-    for (let server of ramMap.map) {
-        let res = server.serverName == "home" ? home_results : other_results
-
-        let best = res.filter((res) => res.ramCost <= server.ram).sort((a, b) => b.moneyPerRam - a.moneyPerRam)
-
-        if (best.length == 0) continue
-
-        opti.push({serverName: server.serverName, plan: best[0]})
-    }
-
-    return opti
+    return results
 }
 
 function getAttackPlan(ns: NS, hostCPUCores: number, targetServer: Server, stealPerc: number, hasFormulas: boolean, growSafetyFactor: number = 1.10) {
@@ -258,6 +280,8 @@ function getAttackPlan(ns: NS, hostCPUCores: number, targetServer: Server, steal
     const H_NEEDED = Math.ceil(stealPerc / PERC_HACK_PER_THREAD)
     const H_SEC_EFFECT = ns.hackAnalyzeSecurity(H_NEEDED)
     const W_H_NEEDED = Math.ceil(H_SEC_EFFECT / ns.weakenAnalyze(1, hostCPUCores))
+
+    const H_CHANCE = hasFormulas ? ns.formulas.hacking.hackChance(targetServer, PLAYER) : ns.hackAnalyzeChance(targetServer.hostname)
 
     let G_NEEDED;
     if (hasFormulas) {
@@ -277,6 +301,8 @@ function getAttackPlan(ns: NS, hostCPUCores: number, targetServer: Server, steal
     const W_TIME = hasFormulas ? ns.formulas.hacking.weakenTime(targetServer, PLAYER) : ns.getWeakenTime(targetServer.hostname)
 
     return new AttackPlan(
+        targetServer.hostname,
+        hostCPUCores > 1,
         H_NEEDED,
         W_H_NEEDED,
         G_NEEDED,
@@ -284,6 +310,6 @@ function getAttackPlan(ns: NS, hostCPUCores: number, targetServer: Server, steal
         stealPerc,
         RAM_COST,
         MONEY_STOLEN,
-        MONEY_STOLEN / RAM_COST / W_TIME
+        MONEY_STOLEN / RAM_COST / W_TIME * H_CHANCE
     )
 }
