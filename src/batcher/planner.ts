@@ -1,5 +1,5 @@
 import { RamMap } from "@/lib/rammap";
-import { NS } from "@ns";
+import { NS, Server } from "@ns";
 import { Job } from "./dispatcher";
 
 const H_COST = 1.70
@@ -15,7 +15,7 @@ export enum PLANNER_ACTION {
     WEAKEN = 2
 }
 
-class HGWPlan {
+class AttackPlan {
     public hack: number
     public weakenH: number
     public grow: number
@@ -35,6 +35,15 @@ class HGWPlan {
         this.moneyStolen = moneyStolen
         this.moneyPerRam = moneyPerRam
     }
+}
+
+export function simulatePreppedServer(ns: NS, targetName: string) {
+    let target = ns.getServer(targetName)
+
+    target.hackDifficulty = target.minDifficulty
+    target.moneyAvailable = target.moneyMax
+
+    return target
 }
 
 export function findTargets(ns: NS) {
@@ -240,25 +249,34 @@ export function findOptimalHGW(ns: NS, targetServerName: string, ramMap: RamMap)
     return opti
 }
 
-function planHGWJob(ns: NS, hostCPUCores: number, targetServerName: string, stealPerc: number) {
-    const PERC_HACK_PER_THREAD = ns.hackAnalyze(targetServerName)
-    const TARGET_MAX_MONEY = ns.getServerMaxMoney(targetServerName)
+function planHGWJob(ns: NS, hostCPUCores: number, targetServer: Server, stealPerc: number, hasFormulas: boolean) {
+    const PLAYER = ns.getPlayer()
+    const PERC_HACK_PER_THREAD = hasFormulas ? ns.formulas.hacking.hackPercent(targetServer, PLAYER) : ns.hackAnalyze(targetServer.hostname)
+    const TARGET_MAX_MONEY = (targetServer.moneyMax as number)
     const MONEY_STOLEN = TARGET_MAX_MONEY * stealPerc
 
     const H_NEEDED = Math.ceil(stealPerc / PERC_HACK_PER_THREAD)
     const H_SEC_EFFECT = ns.hackAnalyzeSecurity(H_NEEDED)
     const W_H_NEEDED = Math.ceil(H_SEC_EFFECT / ns.weakenAnalyze(1, hostCPUCores))
 
-    const GROW_FACTOR = TARGET_MAX_MONEY / (TARGET_MAX_MONEY * (1-stealPerc))
-    const G_NEEDED = Math.ceil(ns.growthAnalyze(targetServerName, GROW_FACTOR, hostCPUCores)*1.10) 
+    let G_NEEDED;
+    if (hasFormulas) {
+        let cTargetServer = Object.assign({}, targetServer)
+        cTargetServer.moneyAvailable = TARGET_MAX_MONEY - MONEY_STOLEN 
+        G_NEEDED = ns.formulas.hacking.growThreads(cTargetServer, PLAYER, TARGET_MAX_MONEY, hostCPUCores)
+    } else {
+        const GROW_FACTOR = TARGET_MAX_MONEY / (TARGET_MAX_MONEY * (1-stealPerc))
+        G_NEEDED = Math.ceil(ns.growthAnalyze(targetServer.hostname, GROW_FACTOR, hostCPUCores)*1.10) 
+    }
+    
     const G_SEC_EFFECT = ns.growthAnalyzeSecurity(G_NEEDED, undefined, hostCPUCores)
     const W_G_NEEDED = Math.ceil(G_SEC_EFFECT/ns.weakenAnalyze(1, hostCPUCores))
 
     const RAM_COST = H_NEEDED * H_COST + G_NEEDED * G_COST + (W_H_NEEDED + W_G_NEEDED) * W_COST
 
-    const W_TIME = ns.getWeakenTime(targetServerName)
+    const W_TIME = hasFormulas ? ns.formulas.hacking.weakenTime(targetServer, PLAYER) : ns.getWeakenTime(targetServer.hostname)
 
-    return new HGWPlan(
+    return new AttackPlan(
         H_NEEDED,
         W_H_NEEDED,
         G_NEEDED,
