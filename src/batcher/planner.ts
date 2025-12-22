@@ -249,7 +249,7 @@ export function findOptimalHGW(ns: NS, targetServerName: string, ramMap: RamMap)
     return opti
 }
 
-function planHGWJob(ns: NS, hostCPUCores: number, targetServer: Server, stealPerc: number, hasFormulas: boolean) {
+function getAttackPlan(ns: NS, hostCPUCores: number, targetServer: Server, stealPerc: number, hasFormulas: boolean, growSafetyFactor: number = 1.10) {
     const PLAYER = ns.getPlayer()
     const PERC_HACK_PER_THREAD = hasFormulas ? ns.formulas.hacking.hackPercent(targetServer, PLAYER) : ns.hackAnalyze(targetServer.hostname)
     const TARGET_MAX_MONEY = (targetServer.moneyMax as number)
@@ -266,7 +266,7 @@ function planHGWJob(ns: NS, hostCPUCores: number, targetServer: Server, stealPer
         G_NEEDED = ns.formulas.hacking.growThreads(cTargetServer, PLAYER, TARGET_MAX_MONEY, hostCPUCores)
     } else {
         const GROW_FACTOR = TARGET_MAX_MONEY / (TARGET_MAX_MONEY * (1-stealPerc))
-        G_NEEDED = Math.ceil(ns.growthAnalyze(targetServer.hostname, GROW_FACTOR, hostCPUCores)*1.10) 
+        G_NEEDED = Math.ceil(ns.growthAnalyze(targetServer.hostname, GROW_FACTOR, hostCPUCores)*growSafetyFactor)
     }
     
     const G_SEC_EFFECT = ns.growthAnalyzeSecurity(G_NEEDED, undefined, hostCPUCores)
