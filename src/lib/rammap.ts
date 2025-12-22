@@ -26,10 +26,18 @@ export class RamMap {
 
     public getBiggestServer(excludeHome: boolean) {
         let map = this.map
-        if (excludeHome) map = map.filter((server) => server.hostname != 'home')
+        if (excludeHome) map = map.filter((server) => server.hostname != "home")
 
         if (map.length == 0) return null
         
         return map.sort((a, b) => b.availableRam - a.availableRam)[0]
+    }
+
+    public isHomePresent() {
+        return this.map.some((unit) => unit.hostname == "home")
+    }
+
+    public isSomeServerPresent() {
+        return this.map.some((unit) => unit.hostname != "home")
     }
 }
