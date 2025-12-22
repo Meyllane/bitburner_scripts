@@ -40,4 +40,12 @@ export class RamMap {
     public isSomeServerPresent() {
         return this.map.some((unit) => unit.hostname != "home")
     }
+
+    public getRam(hostname: string) {
+        let unit = this.map.filter((unit) => unit.hostname == hostname)
+
+        if (unit.length == 0) return -1
+
+        return unit[0].availableRam
+    }
 }
