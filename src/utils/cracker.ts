@@ -11,6 +11,8 @@ export async function main(ns: NS) {
     if (ns.fileExists("sqlinject.exe")) tools.push((target: string) => ns.sqlinject(target))
 
     for (let target of servers) {
+        if (target == "darkweb" && !ns.hasTorRouter()) continue
+        
         if (ns.hasRootAccess(target)) continue
 
         if (ns.getServerRequiredHackingLevel(target) > ns.getHackingLevel()) continue
