@@ -13,6 +13,9 @@ export class WorkerReport {
 }
 
 export async function main(ns: NS) {
+
+    ns.atExit(() => ns.writePort(PORT, new WorkerReport(PID, JOB_STATUS.FINISHED)))
+
     const ID = ns.args[0] as string
     const ACTION = ns.args[1] as number
     const THREADS = ns.args[2] as number
@@ -39,6 +42,4 @@ export async function main(ns: NS) {
             await ns.weaken(TARGET, {threads: THREADS})
             break;
     }
-
-    ns.atExit(() => ns.writePort(PORT, new WorkerReport(PID, JOB_STATUS.FINISHED)))
 }
