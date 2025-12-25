@@ -1,5 +1,7 @@
 import { NS } from "@ns";
 
 export async function main(ns: NS) {
-    await ns.share()
+    while (true) {
+        await ns.share()
+    }
 }
