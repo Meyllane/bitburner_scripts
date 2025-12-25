@@ -5,7 +5,7 @@ export class FleetManager {
     private ns: NS
     public serverLimit: number
     public serverList: string[]
-    public percMoneyAvailable: number = 0.6
+    public percMoneyAvailable: number = 0.9
     private moneyAvaiable;
     private serverBuyCost: {ram: number, price: number}[]
     public fleetFullyMaxed: boolean = false

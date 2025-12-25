@@ -1,5 +1,4 @@
 import { NS } from "@ns"
-import { PLANNER_ACTION } from "./planner"
 import { WorkerReport } from "./worker"
 import { customPrint } from "@/lib/func"
 
@@ -9,6 +8,12 @@ export enum JOB_STATUS {
     WAITING = 2,
     RUNNING = 3,
     FINISHED = 4
+}
+
+export enum JobAction {
+    HACK = 0,
+    GROW = 1,
+    WEAKEN = 2
 }
 
 export class Dispatcher {
@@ -116,7 +121,7 @@ export class Job {
     public port: number = -1
     public pid: number = -1
     public host: string
-    public action: PLANNER_ACTION
+    public action: JobAction
     public script: string
     public target: string
     public threads: number
@@ -124,7 +129,7 @@ export class Job {
     public ramOverride: number
     public status: JOB_STATUS
 
-    public constructor(id: string, host: string, action: PLANNER_ACTION, script:string, target: string, 
+    public constructor(id: string, host: string, action: JobAction, script:string, target: string, 
         threads: number, sleepTime: number, ramOverride: number, status: JOB_STATUS = JOB_STATUS.QUEUED) {
         
         this.id = id

@@ -1,6 +1,5 @@
 import { NS } from "@ns";
-import { PLANNER_ACTION } from "./planner";
-import { JOB_STATUS } from "./dispatcher";
+import { JOB_STATUS, JobAction } from "./dispatcher";
 
 export class WorkerReport {
     public pid: number
@@ -32,13 +31,13 @@ export async function main(ns: NS) {
     ns.writePort(PORT, new WorkerReport(PID, JOB_STATUS.RUNNING))
 
     switch(ACTION) {
-        case PLANNER_ACTION.HACK:
+        case JobAction.HACK:
             await ns.hack(TARGET, {threads: THREADS})
             break;
-        case PLANNER_ACTION.GROW:
+        case JobAction.GROW:
             await ns.grow(TARGET, {threads: THREADS})
             break;
-        case PLANNER_ACTION.WEAKEN:
+        case JobAction.WEAKEN:
             await ns.weaken(TARGET, {threads: THREADS})
             break;
     }
