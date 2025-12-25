@@ -16,9 +16,8 @@ export enum PLANNER_ACTION {
     WEAKEN = 2
 }
 
-class AttackPlan {
+export class AttackPlan {
     public targetHostname: string
-    public isHomePlan: boolean
     public hack: number
     public weakenH: number
     public grow: number
@@ -28,10 +27,10 @@ class AttackPlan {
     public moneyStolen: number
     public performance: number
     
-    public constructor(targetHostname: string, isHomePlan: boolean, hack: number, weakenH: number, grow: number, 
+    public constructor(targetHostname: string, hack: number, weakenH: number, grow: number, 
         weakenG: number, stealPerc: number, ramCost: number, moneyStolen: number, performance: number) {
+        
         this.targetHostname = targetHostname
-        this.isHomePlan = isHomePlan
         this.hack = hack
         this.weakenH = weakenH
         this.grow = grow
@@ -67,11 +66,11 @@ export function getWJobs(ns: NS, targetServerName: string, ramMap: RamMap): Job[
     let queue = [];
     let secDelta = ns.getServerSecurityLevel(targetServerName) - ns.getServerMinSecurityLevel(targetServerName)
     for (let server of ramMap.map) {
-        const MAX_W_THREADS = Math.floor(server.ram / W_COST)
+        const MAX_W_THREADS = Math.floor(server.availableRam / W_COST)
         
         if (MAX_W_THREADS == 0) continue
 
-        const W_EFFECT = ns.weakenAnalyze(1, ns.getServer(server.serverName).cpuCores)
+        const W_EFFECT = ns.weakenAnalyze(1, ns.getServer(server.hostname).cpuCores)
         
         let neededW = Math.ceil(secDelta/W_EFFECT)
 
@@ -79,7 +78,7 @@ export function getWJobs(ns: NS, targetServerName: string, ramMap: RamMap): Job[
 
         queue.push(new Job(
             `prepW-weaken-${targetServerName}`,
-            server.serverName,
+            server.hostname,
             PLANNER_ACTION.WEAKEN,
             "batcher/worker.js",
             targetServerName,
@@ -89,7 +88,7 @@ export function getWJobs(ns: NS, targetServerName: string, ramMap: RamMap): Job[
         ))
 
         secDelta -= Math.min(W_EFFECT*NB_W, secDelta)
-        server.ram -= W_COST*NB_W
+        server.availableRam -= W_COST*NB_W
         if (secDelta == 0) break
     }
 
@@ -104,12 +103,12 @@ export function getWGJobs(ns: NS, targetServerName: string, ramMap: RamMap): Job
 
     let counter = 0;
     for (let server of ramMap.map) {
-        const W_EFFECT = ns.weakenAnalyze(1, ns.getServer(server.serverName).cpuCores)
-        const G_SEC_EFFECT = ns.growthAnalyzeSecurity(1, targetServerName, ns.getServer(server.serverName).cpuCores)
+        const W_EFFECT = ns.weakenAnalyze(1, ns.getServer(server.hostname).cpuCores)
+        const G_SEC_EFFECT = ns.growthAnalyzeSecurity(1, targetServerName, ns.getServer(server.hostname).cpuCores)
         const WG_RATIO = Math.floor(W_EFFECT/G_SEC_EFFECT)
         const GW_COST = G_COST + WG_RATIO * W_COST
 
-        const MAX_GW_THREADS = Math.floor(server.ram / GW_COST)
+        const MAX_GW_THREADS = Math.floor(server.availableRam / GW_COST)
 
         if (MAX_GW_THREADS == 0) continue
 
@@ -121,7 +120,7 @@ export function getWGJobs(ns: NS, targetServerName: string, ramMap: RamMap): Job
 
         queue.push(new Job(
             `prepG-grow-${targetServerName}-${counter}`,
-            server.serverName,
+            server.hostname,
             PLANNER_ACTION.GROW,
             "batcher/worker.js",
             targetServerName,
@@ -132,7 +131,7 @@ export function getWGJobs(ns: NS, targetServerName: string, ramMap: RamMap): Job
 
         queue.push(new Job(
             `prepG-weaken-${targetServerName}-${counter}`,
-            server.serverName,
+            server.hostname,
             PLANNER_ACTION.WEAKEN,
             "batcher/worker.js",
             targetServerName,
@@ -141,7 +140,7 @@ export function getWGJobs(ns: NS, targetServerName: string, ramMap: RamMap): Job
             W_COST
         ))
 
-        server.ram -= NB_G*GW_COST
+        server.availableRam -= NB_G*GW_COST
         neededG -= Math.min(NB_G, neededG)
         if (neededG == 0) break
     }
@@ -149,73 +148,71 @@ export function getWGJobs(ns: NS, targetServerName: string, ramMap: RamMap): Job
     return queue
 }
 
-export function getHGWJobs(ns: NS, targetServerName: string, ramMap: RamMap) {
+export function getHGWJobs(ns: NS, targetServer: Server, ramMap: RamMap, stealPerc: number, hasFormulas: boolean, growSafetyFactor: number = 1.10) {
     let queue = []
-    const WEAKEN_TIME = ns.getWeakenTime(targetServerName)
-    const GROW_TIME = ns.getGrowTime(targetServerName)
-    const HACK_TIME = ns.getHackTime(targetServerName)
+    const WEAKEN_TIME = ns.getWeakenTime(targetServer.hostname)
+    const GROW_TIME = ns.getGrowTime(targetServer.hostname)
+    const HACK_TIME = ns.getHackTime(targetServer.hostname)
     let remaining_cycle = Math.floor(HACK_TIME / (DELAY * 4))
-
-    const OPTI = findOptimalHGW(ns, targetServerName, ramMap)
 
     let cycle = 0
     for (let server of ramMap.map) {
-        let batch = OPTI.find((opti) => opti.serverName == server.serverName)
-        if (batch === undefined) continue
+        const CPU_CORES = ns.getServer(server.hostname).cpuCores
+        let plan = getAttackPlan(ns, CPU_CORES, targetServer, stealPerc, hasFormulas, growSafetyFactor)
 
-        const MAX_NB_BATCH = Math.floor(server.ram / batch.plan.ramCost)
+        const MAX_NB_BATCH = Math.floor(server.availableRam / plan.ramCost)
         if (MAX_NB_BATCH == 0) continue
         
         let allowed_cycle = Math.min(remaining_cycle, MAX_NB_BATCH)
 
         for (let i=cycle; i <= cycle + allowed_cycle - 1; i++) {
             queue.push(new Job(
-                `hack-hack-${targetServerName}-${i}`,
-                server.serverName,
+                `hack-hack-${targetServer.hostname}-${i}`,
+                server.hostname,
                 PLANNER_ACTION.HACK,
                 "batcher/worker.js",
-                targetServerName,
-                batch.plan.hack,
+                targetServer.hostname,
+                plan.hack,
                 WEAKEN_TIME - HACK_TIME - DELAY + FULL_DELAY * i,
                 H_COST
             ))
 
             queue.push(new Job(
-                `hack-weakenH-${targetServerName}-${i}`,
-                server.serverName,
+                `hack-weakenH-${targetServer.hostname}-${i}`,
+                server.hostname,
                 PLANNER_ACTION.WEAKEN,
                 "batcher/worker.js",
-                targetServerName,
-                batch.plan.weakenH,
+                targetServer.hostname,
+                plan.weakenH,
                 FULL_DELAY * i,
                 W_COST
             ))
 
             queue.push(new Job(
-                `hack-grow-${targetServerName}-${i}`,
-                server.serverName,
+                `hack-grow-${targetServer.hostname}-${i}`,
+                server.hostname,
                 PLANNER_ACTION.GROW,
                 "batcher/worker.js",
-                targetServerName,
-                batch.plan.grow,
+                targetServer.hostname,
+                plan.grow,
                 WEAKEN_TIME - GROW_TIME + DELAY + FULL_DELAY * i,
                 G_COST
             ))
 
             queue.push(new Job(
-                `hack-weakenG-${targetServerName}-${i}`,
-                server.serverName,
+                `hack-weakenG-${targetServer.hostname}-${i}`,
+                server.hostname,
                 PLANNER_ACTION.WEAKEN,
                 "batcher/worker.js",
-                targetServerName,
-                batch.plan.weakenG,
+                targetServer.hostname,
+                plan.weakenG,
                 2*DELAY + FULL_DELAY * i,
                 W_COST
             ))
         }
 
         cycle += allowed_cycle
-        server.ram -= batch.plan.ramCost * allowed_cycle
+        server.availableRam -= plan.ramCost * allowed_cycle
         remaining_cycle -= allowed_cycle
         if (remaining_cycle == 0) break
     }
@@ -223,55 +220,61 @@ export function getHGWJobs(ns: NS, targetServerName: string, ramMap: RamMap) {
     return queue
 }
 
+export function getXPJobs(ns: NS, target: string, ramMap: RamMap) {
+    let queue: Job[] = []
+
+    for (let server of ramMap.map) {
+        const MAX_GROW = Math.floor(server.availableRam/G_COST)
+
+        if (MAX_GROW == 0) continue
+
+        queue.push(new Job(
+            "xp-grow",
+            server.hostname,
+            PLANNER_ACTION.GROW,
+            "batcher/worker.js",
+            target,
+            MAX_GROW,
+            0,
+            G_COST
+        ))
+
+        server.availableRam -= MAX_GROW * G_COST
+    }
+
+    return queue
+}
+
 export function getBestAttackPlans(ns: NS, targetServers: Server[], ramMap: RamMap, hasFormulas: boolean, min_perc = 0.01, max_perc = 0.95, growSafetyFactor = 1.10) {
     let results: AttackPlan[] = []
-    const IS_HOME_PRESENT = ramMap.isHomePresent()
-    const IS_SOME_SERVER_PRESENT = ramMap.isSomeServerPresent()
-    for (let target of targetServers) {
-        let options = getAttackPlans(ns, target, ramMap, hasFormulas, IS_HOME_PRESENT, IS_SOME_SERVER_PRESENT, min_perc, max_perc, growSafetyFactor)
-        
-        if (IS_HOME_PRESENT) {
-            let homeSorted = options
-                .filter((plan) => plan.isHomePlan)
-                .sort((a, b) => b.performance - a.performance)
-                .find((plan) => plan.ramCost <= ramMap.getRam("home"))
-            
-            if (homeSorted != undefined) results.push(homeSorted)
-        }
 
-        if (IS_SOME_SERVER_PRESENT) {
-            let biggestServer = (ramMap.getBiggestServer(true) as RamUnit)
-            let someSorted = options
-                .filter((plan) => !plan.isHomePlan)
-                .sort((a, b) => b.performance - a.performance)
-                .find((plan) => plan.ramCost <= biggestServer.availableRam)
-            
-            if (someSorted != undefined) results.push(someSorted)
-        }
+    const BIGGEST_RAM_UNIT = (ramMap.getBiggestServer(false)as RamUnit)
+    for (let target of targetServers) {
+        let options = getAttackPlans(ns, target, ramMap, hasFormulas, min_perc, max_perc, growSafetyFactor)
+            .filter(plan => plan.ramCost <= BIGGEST_RAM_UNIT.availableRam)
+            .sort((a, b) => b.performance - a.performance)
+
+        if (options.length > 0) results.push(options[0])
     }
 
     return results.sort((a, b) => b.performance - a.performance)
 }
 
-export function getAttackPlans(ns: NS, targetServer: Server, ramMap: RamMap, hasFormulas: boolean, isHomePresent: boolean, isSomeServerPresent: boolean, 
-    min_perc = 0.01, max_perc = 0.95, growSafetyFactor = 1.10) {
+export function getAttackPlans(ns: NS, targetServer: Server, ramMap: RamMap, hasFormulas: boolean, min_perc = 0.01, max_perc = 0.95, growSafetyFactor = 1.10) {
     let results: AttackPlan[] = []
 
-    const HOME_CPU_CORES = ns.getServer("home").cpuCores
+    const BIGGEST_SERVER = ns.getServer((ramMap.getBiggestServer(false)?.hostname as string))
     for (let i = min_perc; i <= max_perc; i += 0.01) {
-        if (isHomePresent) {
-            results.push(getAttackPlan(ns, HOME_CPU_CORES, targetServer, i, hasFormulas, growSafetyFactor))
-        }
-
-        if (isSomeServerPresent) {
-            results.push(getAttackPlan(ns, 1, targetServer, i, hasFormulas, growSafetyFactor))
-        }
+        results.push(getAttackPlan(ns, BIGGEST_SERVER.cpuCores, targetServer, i, hasFormulas, growSafetyFactor))
     }
 
     return results
 }
 
 function getAttackPlan(ns: NS, hostCPUCores: number, targetServer: Server, stealPerc: number, hasFormulas: boolean, growSafetyFactor: number = 1.10) {
+    //Simulate sec prepped
+    targetServer.hackDifficulty = targetServer.minDifficulty
+
     const PLAYER = ns.getPlayer()
     const PERC_HACK_PER_THREAD = hasFormulas ? ns.formulas.hacking.hackPercent(targetServer, PLAYER) : ns.hackAnalyze(targetServer.hostname)
     const TARGET_MAX_MONEY = (targetServer.moneyMax as number)
@@ -302,7 +305,6 @@ function getAttackPlan(ns: NS, hostCPUCores: number, targetServer: Server, steal
 
     return new AttackPlan(
         targetServer.hostname,
-        hostCPUCores > 1,
         H_NEEDED,
         W_H_NEEDED,
         G_NEEDED,

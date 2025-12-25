@@ -1,4 +1,5 @@
 import { NS } from "@ns"
+import { on } from "events"
 
 export class RamUnit {
     public hostname: string
@@ -14,13 +15,19 @@ export class RamMap {
     public ns: NS
     public map: RamUnit[]
 
-    public constructor(ns: NS, hostList: string[]) {
+    //
+    public constructor(ns: NS, hostList: string[], onlyMaxRam: boolean = false) {
         this.ns = ns
         this.map = hostList.map((hostname) => {
             return new RamUnit(
                 hostname,
-                this.ns.getServerMaxRam(hostname) - this.ns.getServerUsedRam(hostname)
+                this.ns.getServerMaxRam(hostname)
             )
+        })
+
+        if (!onlyMaxRam) this.map = this.map.map(unit => {
+            unit.availableRam -= ns.getServerUsedRam(unit.hostname)
+            return unit
         })
     }
 

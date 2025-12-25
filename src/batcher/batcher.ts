@@ -1,54 +1,95 @@
 import { RamMap } from "@/lib/rammap";
 import { NS } from "@ns";
-import { getHGWJobs, getWGJobs, getWJobs } from "./planner";
+import { getBestAttackPlans, getHGWJobs, getWGJobs, getWJobs, getXPJobs } from "./planner";
 import { Dispatcher, JOB_STATUS } from "./dispatcher";
-import { WorkerReport } from "./worker";
 import { customPrint } from "@/lib/func";
+
+export function getHackableServers(ns: NS) {
+    let servers = ns.read("/etc/servers.txt").split("\n")
+    
+    if (!ns.hasTorRouter()) servers = servers.filter(hostname => hostname != "darkweb")
+    
+    return servers
+        .map(hostname => ns.getServer(hostname))
+        .filter(server => server.moneyMax != undefined && server.moneyMax > 0 && server.hasAdminRights)
+}
 
 export async function main(ns: NS) {
     ns.disableLog("ALL")
 
-    let serverList = ns.getPurchasedServers()
-    serverList.push("home")
+    let excludeHome = false
+    const MIN_PERC = 0.01
+    const MAX_PERC = 0.99
+    const GROW_SAFETY_FACTOR = 1.05
+    let maxTargets = 1
+    let workers = []
+    let xpMode = false
 
-    let ramMap = new RamMap(ns, serverList);
+    let workersHostname: string[] = []
+    if (workers.length == 0) {
+        workersHostname = ns.getPurchasedServers()
+        if (excludeHome) workersHostname.push("home")
+
+        if (workersHostname.length == 0) workersHostname.push("home")
+    } 
+    let ramMap = new RamMap(ns, workersHostname);
+
     const DISPATCHER = new Dispatcher(ns)
     DISPATCHER.clearAllPorts()
 
-    let target = "max-hardware"
+    let hackableTargets = getHackableServers(ns)
+    let hasFormulas = ns.fileExists("Formulas.exe")
+    let bestPlans = getBestAttackPlans(ns, hackableTargets, ramMap, hasFormulas, MIN_PERC, MAX_PERC, GROW_SAFETY_FACTOR)
+    let actualTargets = bestPlans.slice(0, maxTargets).map(plan => plan.targetHostname)
 
+    if (xpMode) actualTargets = ["joesguns"]
+    
     let playerLevel = ns.getHackingLevel()
 
+    //Decide targets
+
     while (true) {
-        let newLevel = ns.getHackingLevel()
-        ramMap = new RamMap(ns, serverList)
+        let newPlayerLevel = ns.getHackingLevel()
+        ramMap = new RamMap(ns, workersHostname)
 
-        if (newLevel > playerLevel) {
-            customPrint(ns, "Level up detected. Killing all waiting jobs")
-            playerLevel = newLevel
+        if (newPlayerLevel > playerLevel && !xpMode) {
             DISPATCHER.killAllNotRunning()
+            customPrint(ns, `Level up detected. Killing all non running jobs and recalculating targets.`)
+            playerLevel = newPlayerLevel
+            hackableTargets = getHackableServers(ns)
+            bestPlans = getBestAttackPlans(ns, hackableTargets, new RamMap(ns, workersHostname, true), hasFormulas, MIN_PERC, MAX_PERC, GROW_SAFETY_FACTOR)
+            actualTargets = bestPlans.slice(0, maxTargets).map(plan => plan.targetHostname)
         }
 
-        let secDelta = ns.getServerSecurityLevel(target) - ns.getServerMinSecurityLevel(target)
+        for (let target of actualTargets) {
+            if (ns.getServerSecurityLevel(target) > ns.getServerMinSecurityLevel(target) && !DISPATCHER.isServerWorkedOn(target)) {
+                customPrint(ns, `Weakening ${target}`)
+                DISPATCHER.add(getWJobs(ns, target, ramMap))
+            }
 
-        if (secDelta > 0 && !DISPATCHER.isServerWorkedOn(target)) {
-            customPrint(ns, `Weakening ${target}`)
-            DISPATCHER.add(getWJobs(ns, target, ramMap))
-        }
-        
-        if (ns.getServerMaxMoney(target) != ns.getServerMoneyAvailable(target) && !DISPATCHER.isServerWorkedOn(target)) {
-            customPrint(ns, `Growing ${target}`)
-            DISPATCHER.add(getWGJobs(ns, target, ramMap))
-        }
+            if (ns.getServerMoneyAvailable(target) < ns.getServerMaxMoney(target)  && !DISPATCHER.isServerWorkedOn(target)) {
+                customPrint(ns, `Growing ${target}`)
+                DISPATCHER.add(getWGJobs(ns, target, ramMap))
+            }
 
-        if (!DISPATCHER.isServerWorkedOn(target)) {
-            customPrint(ns, `Hacking ${target}`)
-            DISPATCHER.add(getHGWJobs(ns, target, ramMap))
+            if (!DISPATCHER.isServerWorkedOn(target)) {
+                if (!xpMode) {
+                    if (!hasFormulas) {
+                        bestPlans = getBestAttackPlans(ns, hackableTargets, new RamMap(ns, workersHostname, true), hasFormulas, MIN_PERC, MAX_PERC, GROW_SAFETY_FACTOR)
+                    }
+                    let plan = bestPlans.find(plan => plan.targetHostname == target)
+                    if (plan == undefined) continue
+                    customPrint(ns, `Hacking ${target} with plan {H: ${plan.hack}, WH: ${plan.weakenH}, G: ${plan.grow}, WG: ${plan.weakenG}}`)
+                    DISPATCHER.add(getHGWJobs(ns, ns.getServer(target), ramMap, plan.stealPerc, hasFormulas, GROW_SAFETY_FACTOR))
+                } else {
+                    customPrint(ns, `XPing on ${target}`)
+                    DISPATCHER.add(getXPJobs(ns, target, ramMap))
+                }
+            }
         }
 
         DISPATCHER.dispatch()
         DISPATCHER.monitor()
-
         await ns.sleep(100)
     }
 }
