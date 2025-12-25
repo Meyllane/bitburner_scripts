@@ -22,17 +22,16 @@ export async function main(ns: NS) {
     const MAX_PERC = 0.99
     const GROW_SAFETY_FACTOR = 1.05
     let maxTargets = 1
-    let workers = []
+    let workers = ["server-0"]
     let xpMode = false
 
-    let workersHostname: string[] = []
     if (workers.length == 0) {
-        workersHostname = ns.getPurchasedServers()
-        if (excludeHome) workersHostname.push("home")
+        workers = ns.getPurchasedServers()
+        if (!excludeHome) workers.push("home")
 
-        if (workersHostname.length == 0) workersHostname.push("home")
+        if (workers.length == 0) workers.push("home")
     } 
-    let ramMap = new RamMap(ns, workersHostname);
+    let ramMap = new RamMap(ns, workers);
 
     const DISPATCHER = new Dispatcher(ns)
     DISPATCHER.clearAllPorts()
@@ -50,14 +49,14 @@ export async function main(ns: NS) {
 
     while (true) {
         let newPlayerLevel = ns.getHackingLevel()
-        ramMap = new RamMap(ns, workersHostname)
+        ramMap = new RamMap(ns, workers)
 
         if (newPlayerLevel > playerLevel && !xpMode) {
             DISPATCHER.killAllNotRunning()
-            customPrint(ns, `Level up detected. Killing all non running jobs and recalculating targets.`)
+            //customPrint(ns, `Level up detected. Killing all non running jobs and recalculating targets.`)
             playerLevel = newPlayerLevel
             hackableTargets = getHackableServers(ns)
-            bestPlans = getBestAttackPlans(ns, hackableTargets, new RamMap(ns, workersHostname, true), hasFormulas, MIN_PERC, MAX_PERC, GROW_SAFETY_FACTOR)
+            bestPlans = getBestAttackPlans(ns, hackableTargets, new RamMap(ns, workers, true), hasFormulas, MIN_PERC, MAX_PERC, GROW_SAFETY_FACTOR)
             actualTargets = bestPlans.slice(0, maxTargets).map(plan => plan.targetHostname)
         }
 
@@ -75,7 +74,7 @@ export async function main(ns: NS) {
             if (!DISPATCHER.isServerWorkedOn(target)) {
                 if (!xpMode) {
                     if (!hasFormulas) {
-                        bestPlans = getBestAttackPlans(ns, hackableTargets, new RamMap(ns, workersHostname, true), hasFormulas, MIN_PERC, MAX_PERC, GROW_SAFETY_FACTOR)
+                        bestPlans = getBestAttackPlans(ns, hackableTargets, new RamMap(ns, workers, true), hasFormulas, MIN_PERC, MAX_PERC, GROW_SAFETY_FACTOR)
                     }
                     let plan = bestPlans.find(plan => plan.targetHostname == target)
                     if (plan == undefined) continue

@@ -1,12 +1,8 @@
 import { NS } from "@ns";
+import { FleetManager } from "../app/fleet-manager/fleet-manager";
 
 export async function main(ns: NS) {
-    let scripts = [
-        "batcher/worker.js",
-        "batcher/planner.js",
-        "batcher/dispatcher.js"
-    ]
+    const FLEET_MANAGER = new FleetManager(ns)
 
-    ns.getPurchasedServers()
-        .forEach((server) => ns.scp(scripts, server, "home"))
+    FLEET_MANAGER.copyScripts()
 }

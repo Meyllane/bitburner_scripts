@@ -248,7 +248,7 @@ export function getXPJobs(ns: NS, target: string, ramMap: RamMap) {
 export function getBestAttackPlans(ns: NS, targetServers: Server[], ramMap: RamMap, hasFormulas: boolean, min_perc = 0.01, max_perc = 0.95, growSafetyFactor = 1.10) {
     let results: AttackPlan[] = []
 
-    const BIGGEST_RAM_UNIT = (ramMap.getBiggestServer(false)as RamUnit)
+    const BIGGEST_RAM_UNIT = (ramMap.getBiggestServer(false) as RamUnit)
     for (let target of targetServers) {
         let options = getAttackPlans(ns, target, ramMap, hasFormulas, min_perc, max_perc, growSafetyFactor)
             .filter(plan => plan.ramCost <= BIGGEST_RAM_UNIT.availableRam)
@@ -278,7 +278,7 @@ function getAttackPlan(ns: NS, hostCPUCores: number, targetServer: Server, steal
     const PLAYER = ns.getPlayer()
     const PERC_HACK_PER_THREAD = hasFormulas ? ns.formulas.hacking.hackPercent(targetServer, PLAYER) : ns.hackAnalyze(targetServer.hostname)
     const TARGET_MAX_MONEY = (targetServer.moneyMax as number)
-    const MONEY_STOLEN = TARGET_MAX_MONEY * stealPerc
+    const MONEY_STOLEN = Math.ceil(TARGET_MAX_MONEY * stealPerc)
 
     const H_NEEDED = Math.ceil(stealPerc / PERC_HACK_PER_THREAD)
     const H_SEC_EFFECT = ns.hackAnalyzeSecurity(H_NEEDED)
@@ -290,7 +290,7 @@ function getAttackPlan(ns: NS, hostCPUCores: number, targetServer: Server, steal
     if (hasFormulas) {
         let cTargetServer = Object.assign({}, targetServer)
         cTargetServer.moneyAvailable = TARGET_MAX_MONEY - MONEY_STOLEN 
-        G_NEEDED = ns.formulas.hacking.growThreads(cTargetServer, PLAYER, TARGET_MAX_MONEY, hostCPUCores)
+        G_NEEDED = Math.ceil(ns.formulas.hacking.growThreads(cTargetServer, PLAYER, TARGET_MAX_MONEY, hostCPUCores)*1.01)
     } else {
         const GROW_FACTOR = TARGET_MAX_MONEY / (TARGET_MAX_MONEY * (1-stealPerc))
         G_NEEDED = Math.ceil(ns.growthAnalyze(targetServer.hostname, GROW_FACTOR, hostCPUCores)*growSafetyFactor)

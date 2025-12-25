@@ -10,6 +10,13 @@ export class FleetManager {
     private serverBuyCost: {ram: number, price: number}[]
     public fleetFullyMaxed: boolean = false
 
+    private scriptsToCopy = [
+        "app/batcher/worker.js",
+        "app/batcher/planner.js",
+        "app/batcher/dispatcher.js",
+        "app/share-manager/share.js"
+    ]
+
     public constructor(ns: NS){
         this.ns = ns
         this.serverLimit = this.ns.getPurchasedServerLimit()
@@ -58,9 +65,14 @@ export class FleetManager {
         
         customPrint(this.ns, `Bought ${serverName} with ${this.ns.formatRam(order.ram)} for ${this.ns.formatNumber(order.price)}$.`)
         this.ns.purchaseServer(serverName, order.ram)
+        this.ns.scp(this.scriptsToCopy, serverName, "home")
         this.moneyAvaiable -= order.price
 
         return true
+    }
+
+    public copyScripts() {
+        this.serverList.forEach(server => this.ns.scp(this.scriptsToCopy, server, "home"))
     }
 
     public upgradeServer(hostname: string) {
