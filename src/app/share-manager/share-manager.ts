@@ -1,26 +1,42 @@
-import { NS } from "@ns";
+import { SHARE_COST, SHARE_SCRIPT_PATH } from '@/lib/constant';
+import { RamMap } from '@/lib/rammap';
+import { NS } from '@ns';
 
-const SHARE_COST = 4
+export class ShareManager {
+    private ns: NS;
+    public ramMap: RamMap;
+    public pids: number[] = [];
+
+    public constructor(ns: NS, ramMap: RamMap) {
+        this.ns = ns;
+        this.ramMap = ramMap;
+    }
+
+    public run() {
+        for (let server of this.ramMap.map) {
+            const MAX_SHARE = Math.floor(server.availableRam / SHARE_COST);
+            if (MAX_SHARE == 0) continue;
+
+            let pid = this.ns.exec(SHARE_SCRIPT_PATH, server.hostname, { threads: MAX_SHARE });
+
+            this.pids.push(pid);
+        }
+    }
+
+    public killShares() {
+        this.pids.forEach(this.ns.kill);
+        this.pids = [];
+    }
+}
 
 export async function main(ns: NS) {
+    ns.disableLog("ALL")
+
     let workers = ["server-0"]
 
-    let pids: number[] = []
+    let t = new RamMap(ns, workers, false, true)
 
-    ns.atExit(() => pids.forEach(ns.kill))
+    const SHARE_MANAGER = new ShareManager(ns, t)
 
-    while (true) {
-        for (let server of workers) {
-            let MAX_SHARE = Math.floor(ns.getServerMaxRam(server) / SHARE_COST)
-            if (MAX_SHARE == 0) continue
-            let pid = ns.exec(
-                "app/share-manager/share.js",
-                server,
-                {ramOverride: SHARE_COST, threads: MAX_SHARE}
-            )
-            pids.push(pid)
-        }
-
-        await ns.sleep(100)
-    }
+    SHARE_MANAGER.run()
 }

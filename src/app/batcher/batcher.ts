@@ -2,15 +2,8 @@ import { RamMap, RamUnit } from '@/lib/rammap';
 import { NS, Server } from '@ns';
 import { Dispatcher, Job, JobAction } from './dispatcher';
 import { customPrint } from '@/lib/func';
-import { wrap } from 'module';
+import { DELAY, FULL_DELAY, G_COST, H_COST, W_COST, WORKER_SCRIPT_PATH } from '@/lib/constant';
 
-const H_COST = 1.7;
-const W_COST = 1.75;
-const G_COST = 1.75;
-const DELAY = 50;
-const FULL_DELAY = DELAY * 4;
-
-const WORKER_SCRIPT_PATH = 'app/batcher/worker.js';
 
 export enum BatcherMode {
     ATTACK = 0,
@@ -63,7 +56,7 @@ export class Batcher {
     public workers: string[];
     public dispatcher: Dispatcher;
     public ramMap: RamMap;
-    public growSafetyFactor: number = 1.01;
+    public growSafetyFactor: number = 1.05;
     public hasFormulas: boolean;
     public usedPlans: AttackPlan[] = [];
     public targets: string[] = [];
@@ -137,7 +130,7 @@ export class Batcher {
             stealPerc,
             RAM_COST,
             MONEY_STOLEN,
-            (MONEY_STOLEN / RAM_COST / W_TIME) * H_CHANCE,
+            (MONEY_STOLEN / W_TIME) * H_CHANCE,
         );
     }
 
@@ -212,7 +205,7 @@ export class Batcher {
             const W_EFFECT = this.ns.weakenAnalyze(1, this.ns.getServer(server.hostname).cpuCores);
             const G_SEC_EFFECT = this.ns.growthAnalyzeSecurity(1, targetServerName, this.ns.getServer(server.hostname).cpuCores);
             const WG_RATIO = Math.floor(W_EFFECT / G_SEC_EFFECT);
-            const GW_COST = G_COST + WG_RATIO * W_COST;
+            const GW_COST = WG_RATIO * G_COST + W_COST;
 
             const MAX_GW_THREADS = Math.floor(server.availableRam / GW_COST);
 
@@ -251,7 +244,7 @@ export class Batcher {
                 ),
             );
 
-            server.availableRam -= NB_G * GW_COST;
+            server.availableRam -= NB_G * G_COST + NB_W * W_COST;
             neededG -= Math.min(NB_G, neededG);
             if (neededG == 0) break;
         }
@@ -260,11 +253,11 @@ export class Batcher {
     }
 
     public getHGWJobs(targetServer: Server, stealPerc: number) {
-        let queue = [];
+        let queue: Job[] = [];
         const WEAKEN_TIME = this.ns.getWeakenTime(targetServer.hostname);
         const GROW_TIME = this.ns.getGrowTime(targetServer.hostname);
         const HACK_TIME = this.ns.getHackTime(targetServer.hostname);
-        let remaining_cycle = Math.floor(HACK_TIME / (DELAY * 4));
+        let remaining_cycle = Math.floor(HACK_TIME / (DELAY * 4)) - 1;
 
         let cycle = 0;
         for (let server of this.ramMap.map) {
@@ -328,12 +321,15 @@ export class Batcher {
                         W_COST,
                     ),
                 );
+
+                if (i == 115) return queue
             }
 
             cycle += allowed_cycle;
             server.availableRam -= plan.ramCost * allowed_cycle;
             remaining_cycle -= allowed_cycle;
             if (remaining_cycle == 0) break;
+            break
         }
 
         return queue;
@@ -372,11 +368,11 @@ export class Batcher {
     }
 
     public run() {
-        this.ramMap = new RamMap(this.ns, this.workers)
+        this.ramMap = new RamMap(this.ns, this.workers, false, true)
         let actualLevel = this.ns.getHackingLevel()
         if (actualLevel > this.playerLevel) {
             this.playerLevel = actualLevel
-            this.dispatcher.killAllNotRunning()
+            //this.dispatcher.killAllNotRunning()
             this.setup()
         }
 
@@ -413,9 +409,6 @@ export class Batcher {
                 }
             }
         }
-
-        this.dispatcher.dispatch();
-        this.dispatcher.monitor();
     }
 
     public setup() {
@@ -433,7 +426,7 @@ export async function main(ns: NS) {
     if (workers.length == 0) {
         workers.push(...ns.getPurchasedServers());
 
-        if (excludeHome) {
+        if (excludeHome && workers.length == 0) {
             workers.push('home');
         }
     }
@@ -441,13 +434,15 @@ export async function main(ns: NS) {
     let ramMap = new RamMap(ns, workers);
     let hasFormulas = ns.fileExists('Formulas.exe');
     const BATCHER = new Batcher(ns, workers, ramMap, hasFormulas);
-    BATCHER.batcherMode = BatcherMode.XP
+    BATCHER.batcherMode = BatcherMode.ATTACK
 
     BATCHER.dispatcher.clearAllPorts()
 
     BATCHER.setup();
     while (true) {
         BATCHER.run()
+        BATCHER.dispatcher.dispatch()
+        BATCHER.dispatcher.monitor()
         await ns.sleep(100)
     }
 }

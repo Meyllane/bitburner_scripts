@@ -25,20 +25,17 @@ export async function main(ns: NS) {
     const PID = ns.self().pid
     ns.clearPort(PORT)
     
-    ns.writePort(PORT, new WorkerReport(PID, JOB_STATUS.WAITING))
-    await ns.sleep(SLEEP_TIME)
-
     ns.writePort(PORT, new WorkerReport(PID, JOB_STATUS.RUNNING))
 
     switch(ACTION) {
         case JobAction.HACK:
-            await ns.hack(TARGET, {threads: THREADS})
+            await ns.hack(TARGET, {threads: THREADS, additionalMsec: SLEEP_TIME})
             break;
         case JobAction.GROW:
-            await ns.grow(TARGET, {threads: THREADS})
+            await ns.grow(TARGET, {threads: THREADS, additionalMsec: SLEEP_TIME})
             break;
         case JobAction.WEAKEN:
-            await ns.weaken(TARGET, {threads: THREADS})
+            await ns.weaken(TARGET, {threads: THREADS, additionalMsec: SLEEP_TIME})
             break;
     }
 }

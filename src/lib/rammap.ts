@@ -1,5 +1,5 @@
 import { NS } from "@ns"
-import { on } from "events"
+import { SHARE_SCRIPT_PATH } from "./constant"
 
 export class RamUnit {
     public hostname: string
@@ -16,7 +16,7 @@ export class RamMap {
     public map: RamUnit[]
 
     //
-    public constructor(ns: NS, hostList: string[], onlyMaxRam: boolean = false) {
+    public constructor(ns: NS, hostList: string[], onlyMaxRam: boolean = false, excludeShare: boolean = false) {
         this.ns = ns
         this.map = hostList.map((hostname) => {
             return new RamUnit(
@@ -29,6 +29,13 @@ export class RamMap {
             unit.availableRam -= ns.getServerUsedRam(unit.hostname)
             return unit
         })
+
+        if (excludeShare) {
+            for (let unit of this.map) {
+                let share_script = this.ns.getRunningScript(SHARE_SCRIPT_PATH, unit.hostname)
+                if (share_script != null) unit.availableRam += share_script.ramUsage * share_script.threads
+            }
+        }
     }
 
     public getBiggestServer(excludeHome: boolean) {
